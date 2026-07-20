@@ -188,8 +188,8 @@ def render_email_sender(default_subject, default_body, key_prefix, invoice_numbe
 
     col1, col2 = st.columns(2)
 
-    with col1:
-        if st.button("Save Draft", key=f"{key_prefix}_save_not_sent"):
+    with col2:
+        if st.button("Save As Draft", key=f"{key_prefix}_save_not_sent"):
             save_email_log(
                 invoice_number=invoice_number,
                 email_to=email_to,
@@ -201,7 +201,7 @@ def render_email_sender(default_subject, default_body, key_prefix, invoice_numbe
             )
             st.success("Email draft saved as NOT_SENT in database.")
 
-    with col2:
+    with col1:
         if st.button("Send Email", key=f"{key_prefix}_send_email"):
             try:
                 send_result = send_email_from_app(
@@ -582,16 +582,16 @@ with tab1:
             st.success("Reconciliation result saved.")
             render_result_sections(result_record, "single")
 
-            st.header("Download Single Invoice Report")
-            download_df = build_download_df([result_record])
-            csv_data = download_df.to_csv(index=False).encode("utf-8")
+            #st.header("Download Single Invoice Report")
+            #download_df = build_download_df([result_record])
+            #csv_data = download_df.to_csv(index=False).encode("utf-8")
 
-            st.download_button(
-                label="Download Single Invoice Reconciliation Report",
-                data=csv_data,
-                file_name="single_invoice_reconciliation_report.csv",
-                mime="text/csv"
-            )
+            #st.download_button(
+            #    label="Download Single Invoice Reconciliation Report",
+            #    data=csv_data,
+            #    file_name="single_invoice_reconciliation_report.csv",
+            #    mime="text/csv"
+            #)
         except Exception as e:
             st.error(f"Error while processing single invoice: {e}")
 
@@ -672,16 +672,16 @@ with tab1:
 
             render_result_sections(selected_row, f"bulk_{selected_invoice_number}")
 
-            st.header("Download Bulk Report")
-            download_df = build_download_df(st.session_state.bulk_results)
-            csv_data = download_df.to_csv(index=False).encode("utf-8")
+            #st.header("Download Bulk Report")
+            #download_df = build_download_df(st.session_state.bulk_results)
+            #csv_data = download_df.to_csv(index=False).encode("utf-8")
 
-            st.download_button(
-                label="Download Bulk Reconciliation Report",
-                data=csv_data,
-                file_name="bulk_reconciliation_report.csv",
-                mime="text/csv"
-            )
+            #st.download_button(
+            #    label="Download Bulk Reconciliation Report",
+            #    data=csv_data,
+            #    file_name="bulk_reconciliation_report.csv",
+            #    mime="text/csv"
+            #)
 
     if not po_valid or not bank_valid:
         st.info("Please upload valid Purchase Order CSV and Bank Statement CSV to start reconciliation.")
