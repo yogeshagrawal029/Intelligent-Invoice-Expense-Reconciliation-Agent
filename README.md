@@ -260,6 +260,10 @@ For Windows:
 venv\Scripts\activate
 ```
 
+```bash
+(Set-ExecutionPolicy -Scope Process -ExecutionPolicy RemoteSigned) ; (& c:\Users\user\Downloads\invoice-reconciliation-agent\venv\Scripts\Activate.ps1)
+```
+
 For macOS/Linux:
 
 ```bash
