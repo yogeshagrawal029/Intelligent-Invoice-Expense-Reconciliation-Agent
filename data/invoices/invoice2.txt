@@ -1,0 +1,7 @@
+Vendor: Global Stationery
+Invoice Number: INV9002
+PO Number: PO1002
+Invoice Date: 2026-07-08
+Subtotal: 15000
+Tax: 1000
+Total Amount: 16000

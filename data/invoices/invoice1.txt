@@ -1,0 +1,7 @@
+Vendor: ABC Technologies
+Invoice Number: INV9001
+PO Number: PO1001
+Invoice Date: 2026-07-08
+Subtotal: 90000
+Tax: 10000
+Total Amount: 100000

@@ -1,0 +1,6 @@
+Vendor: Tech Solutions
+Invoice Number: INV9004
+Invoice Date: 2026-07-10
+Subtotal: 45000
+Tax: 5000
+Total Amount: 50000

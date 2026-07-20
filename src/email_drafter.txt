@@ -1,0 +1,184 @@
+def draft_vendor_email(invoice_data, recon_row, duplicate_result=None, anomalies=None):
+    vendor_name = invoice_data.get("vendor_name", "Vendor")
+    invoice_number = invoice_data.get("invoice_number", "N/A")
+    po_number = invoice_data.get("po_number", "N/A")
+    invoice_amount = invoice_data.get("total_amount", 0)
+
+    exception_type = recon_row.get("exception_type", "GENERAL_EXCEPTION")
+    issues = recon_row.get("issues", "")
+
+    duplicate_found = False
+    if duplicate_result:
+        duplicate_found = duplicate_result.get("duplicate_found", False)
+
+    anomaly_types = []
+    if anomalies:
+        anomaly_types = [a.get("type") for a in anomalies]
+
+    subject = f"Clarification Required for Invoice {invoice_number}"
+
+    if duplicate_found:
+        subject = f"Possible Duplicate Payment for Invoice {invoice_number}"
+
+        body = f"""
+Dear {vendor_name} Team,
+
+We are reviewing invoice {invoice_number} linked to purchase order {po_number}.
+
+During payment reconciliation, our system found that this invoice may be associated with multiple bank transactions. This may indicate a duplicate payment or repeated payment reference.
+
+Invoice Details:
+Invoice Number: {invoice_number}
+PO Number: {po_number}
+Invoice Amount: ₹{invoice_amount}
+
+Issue Identified:
+Possible duplicate payment detected.
+
+Please confirm whether this invoice was submitted or paid more than once. If there is any correction required, kindly share the updated details.
+
+Regards,
+Accounts Payable Team
+"""
+        return subject, body
+
+    if exception_type == "AMOUNT_MISMATCH" or exception_type == "BANK_AMOUNT_MISMATCH":
+        subject = f"Amount Mismatch Clarification for Invoice {invoice_number}"
+
+        body = f"""
+Dear {vendor_name} Team,
+
+We are reviewing invoice {invoice_number} against purchase order {po_number}.
+
+During reconciliation, we found an amount mismatch between the invoice, purchase order, or bank payment record.
+
+Invoice Details:
+Invoice Number: {invoice_number}
+PO Number: {po_number}
+Invoice Amount: ₹{invoice_amount}
+
+Issue Details:
+{issues}
+
+Please verify the invoice amount and share a corrected invoice or supporting explanation for the difference.
+
+Regards,
+Accounts Payable Team
+"""
+        return subject, body
+
+    if exception_type == "VENDOR_MISMATCH":
+        subject = f"Vendor Name Mismatch for Invoice {invoice_number}"
+
+        body = f"""
+Dear {vendor_name} Team,
+
+We are validating invoice {invoice_number} against our approved purchase order records.
+
+During reconciliation, our system found that the vendor name on the invoice does not fully match the vendor name available in the purchase order record.
+
+Invoice Details:
+Invoice Number: {invoice_number}
+PO Number: {po_number}
+Invoice Amount: ₹{invoice_amount}
+
+Issue Details:
+{issues}
+
+Please confirm the correct vendor name and provide any supporting documentation if the invoice was issued under a different legal or business name.
+
+Regards,
+Accounts Payable Team
+"""
+        return subject, body
+
+    if exception_type == "MISSING_OR_INVALID_PO" or "MISSING_PO" in anomaly_types:
+        subject = f"Missing or Invalid PO Number for Invoice {invoice_number}"
+
+        body = f"""
+Dear {vendor_name} Team,
+
+We are unable to process invoice {invoice_number} because the purchase order reference is missing or invalid.
+
+Invoice Details:
+Invoice Number: {invoice_number}
+PO Number Found: {po_number}
+Invoice Amount: ₹{invoice_amount}
+
+Issue Details:
+{issues}
+
+Please share the valid purchase order number or resend the invoice with the correct PO reference so that we can continue processing.
+
+Regards,
+Accounts Payable Team
+"""
+        return subject, body
+
+    if "HIGH_TAX" in anomaly_types:
+        subject = f"Tax Clarification Required for Invoice {invoice_number}"
+
+        body = f"""
+Dear {vendor_name} Team,
+
+We are reviewing invoice {invoice_number} and found that the tax amount appears unusually high compared to the invoice subtotal.
+
+Invoice Details:
+Invoice Number: {invoice_number}
+PO Number: {po_number}
+Invoice Amount: ₹{invoice_amount}
+
+Please verify the tax calculation and share the tax breakup or corrected invoice if required.
+
+Regards,
+Accounts Payable Team
+"""
+        return subject, body
+
+    if "HIGH_VALUE_INVOICE" in anomaly_types:
+        subject = f"High Value Invoice Review Required for {invoice_number}"
+
+        body = f"""
+Dear {vendor_name} Team,
+
+Invoice {invoice_number} has been flagged for additional review because the invoice amount is above the high-value review threshold.
+
+Invoice Details:
+Invoice Number: {invoice_number}
+PO Number: {po_number}
+Invoice Amount: ₹{invoice_amount}
+
+Please share supporting documents, approval reference, or contract details for this invoice.
+
+Regards,
+Accounts Payable Team
+"""
+        return subject, body
+
+    subject = f"Clarification Required for Invoice {invoice_number}"
+
+    body = f"""
+Dear {vendor_name} Team,
+
+We are reviewing invoice {invoice_number} against purchase order {po_number}.
+
+Our reconciliation system identified an exception that requires clarification.
+
+Invoice Details:
+Invoice Number: {invoice_number}
+PO Number: {po_number}
+Invoice Amount: ₹{invoice_amount}
+
+Issue Type:
+{exception_type}
+
+Issue Details:
+{issues}
+
+Please review and share clarification or supporting documents.
+
+Regards,
+Accounts Payable Team
+"""
+
+    return subject, body

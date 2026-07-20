@@ -1,0 +1,7 @@
+Vendor: Secure Networks
+Invoice Number: INV9009
+PO Number: PO1009
+Invoice Date: 2026-07-10
+Subtotal: 1500000
+Tax: 300000
+Total Amount: 1800000

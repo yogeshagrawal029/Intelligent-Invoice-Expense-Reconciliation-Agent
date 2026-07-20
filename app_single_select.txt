@@ -1,0 +1,609 @@
+import streamlit as st
+import pandas as pd
+
+from src.po_parser import load_purchase_orders, validate_po_columns
+from src.bank_parser import load_bank_statement, validate_bank_columns
+from src.invoice_parser import parse_invoice
+from src.matcher import match_records, three_way_match
+from src.duplicate_detector import detect_duplicate_payment
+from src.anomaly_detector import detect_anomalies
+from src.explanation_agent import generate_explanation
+from src.approval_workflow import save_approval_decision
+from src.email_drafter import draft_vendor_email
+from src.ai_agent import generate_langchain_review, generate_langchain_email
+
+
+st.set_page_config(
+    page_title="Invoice Reconciliation Agent",
+    page_icon="📄",
+    layout="wide"
+)
+
+
+st.title("Intelligent Invoice & Expense Reconciliation Agent")
+
+st.write(
+    "This application automates invoice reconciliation using document parsing, "
+    "three-way matching, duplicate detection, anomaly detection, human approval, "
+    "and LangChain-powered AI explanation and email drafting."
+)
+
+
+st.sidebar.title("Project Workflow")
+
+st.sidebar.markdown(
+    """
+    ### Steps
+
+    1. Upload Purchase Order CSV 
+    2. Upload Bank Statement CSV 
+    3. Upload Single Invoice File 
+    4. Extract Invoice Data 
+    5. Perform Three-Way Matching 
+    6. Detect Duplicate Payment 
+    7. Detect Anomalies 
+    8. Generate Rule-Based Explanation 
+    9. Generate LangChain AI Review 
+    10. Human Approval 
+    11. Generate Vendor Email Draft 
+    12. Download Result 
+    """
+)
+
+st.sidebar.info("Supported invoice files: TXT, PDF, PNG, JPG, JPEG")
+
+
+if "approval_saved" not in st.session_state:
+    st.session_state.approval_saved = False
+
+if "last_decision" not in st.session_state:
+    st.session_state.last_decision = None
+
+if "ai_review" not in st.session_state:
+    st.session_state.ai_review = ""
+
+if "ai_email" not in st.session_state:
+    st.session_state.ai_email = ""
+
+
+def show_required_column_help():
+    with st.expander("Required CSV Format Help"):
+        st.markdown(
+            """
+            ### Purchase Order CSV required columns
+
+            ```text
+            po_number,vendor_name,total_amount,status
+            ```
+
+            Example:
+
+            ```csv
+            po_number,vendor_name,total_amount,status
+            PO1001,ABC Technologies,100000,Approved
+            PO1002,Global Stationery,15000,Approved
+            ```
+
+            ### Bank Statement CSV required columns
+
+            ```text
+            transaction_id,vendor_name,amount,description,date
+            ```
+
+            Example:
+
+            ```csv
+            transaction_id,vendor_name,amount,description,date
+            TXN001,ABC Technologies,100000,Payment INV9001,2026-07-10
+            TXN002,Global Stationery,16000,Payment INV9002,2026-07-11
+            ```
+            """
+        )
+
+
+def prepare_exception_summary(recon_row, duplicate_result, anomalies):
+    exception_summary = []
+
+    if recon_row and recon_row.get("status") == "EXCEPTION":
+        exception_summary.append(
+            {
+                "source": "Three-Way Match",
+                "issue": recon_row.get("exception_type"),
+                "details": recon_row.get("issues")
+            }
+        )
+
+    if duplicate_result and duplicate_result.get("duplicate_found"):
+        exception_summary.append(
+            {
+                "source": "Duplicate Detection",
+                "issue": "DUPLICATE_PAYMENT",
+                "details": f"{duplicate_result.get('matched_count')} matching bank transactions found."
+            }
+        )
+
+    if anomalies:
+        for anomaly in anomalies:
+            exception_summary.append(
+                {
+                    "source": "Anomaly Detection",
+                    "issue": anomaly.get("type"),
+                    "details": anomaly.get("message")
+                }
+            )
+
+    return exception_summary
+
+
+def calculate_human_review_flag(recon_row, duplicate_result, anomalies):
+    if recon_row and recon_row.get("status") == "EXCEPTION":
+        return True
+
+    if duplicate_result and duplicate_result.get("duplicate_found"):
+        return True
+
+    if anomalies:
+        return True
+
+    return False
+
+
+st.header("1. Upload Input Files")
+
+col1, col2, col3 = st.columns(3)
+
+with col1:
+    po_file = st.file_uploader(
+        "Upload Purchase Order CSV",
+        type=["csv"],
+        key="po_file"
+    )
+
+with col2:
+    bank_file = st.file_uploader(
+        "Upload Bank Statement CSV",
+        type=["csv"],
+        key="bank_file"
+    )
+
+with col3:
+    invoice_file = st.file_uploader(
+        "Upload Single Invoice File",
+        type=["txt", "pdf", "png", "jpg", "jpeg"],
+        key="invoice_file"
+    )
+
+
+po_df = None
+bank_df = None
+invoice_data = None
+
+po_valid = False
+bank_valid = False
+invoice_valid = False
+
+recon_result = None
+recon_row = None
+duplicate_result = None
+anomalies = []
+explanation = ""
+
+
+if po_file is not None:
+    st.header("2. Purchase Order Data")
+
+    try:
+        po_df = load_purchase_orders(po_file)
+        missing_po_columns = validate_po_columns(po_df)
+
+        if missing_po_columns:
+            st.error(
+                f"Purchase Order CSV is missing required columns: {missing_po_columns}"
+            )
+            show_required_column_help()
+        else:
+            po_valid = True
+            st.success("Purchase Order file loaded successfully.")
+            st.dataframe(po_df, use_container_width=True)
+            st.write("Total Purchase Orders:", len(po_df))
+
+    except Exception as e:
+        st.error(f"Error while reading Purchase Order file: {e}")
+
+
+if bank_file is not None:
+    st.header("3. Bank Statement Data")
+
+    try:
+        bank_df = load_bank_statement(bank_file)
+        missing_bank_columns = validate_bank_columns(bank_df)
+
+        if missing_bank_columns:
+            st.error(
+                f"Bank Statement CSV is missing required columns: {missing_bank_columns}"
+            )
+            show_required_column_help()
+        else:
+            bank_valid = True
+            st.success("Bank Statement file loaded successfully.")
+            st.dataframe(bank_df, use_container_width=True)
+            st.write("Total Bank Transactions:", len(bank_df))
+
+    except Exception as e:
+        st.error(f"Error while reading Bank Statement file: {e}")
+
+
+if invoice_file is not None:
+    st.header("4. Extracted Invoice Data")
+
+    try:
+        invoice_data = parse_invoice(invoice_file)
+
+        invoice_display = pd.DataFrame(
+            [
+                {
+                    "invoice_number": invoice_data.get("invoice_number"),
+                    "vendor_name": invoice_data.get("vendor_name"),
+                    "po_number": invoice_data.get("po_number"),
+                    "invoice_date": invoice_data.get("invoice_date"),
+                    "subtotal": invoice_data.get("subtotal"),
+                    "tax": invoice_data.get("tax"),
+                    "total_amount": invoice_data.get("total_amount"),
+                }
+            ]
+        )
+
+        st.success("Invoice data extracted successfully.")
+        st.dataframe(invoice_display, use_container_width=True)
+
+        invoice_valid = True
+
+        with st.expander("Show Raw Extracted Invoice Text"):
+            st.text(invoice_data.get("raw_text", ""))
+
+    except Exception as e:
+        st.error(f"Error while parsing invoice file: {e}")
+
+
+if po_valid and bank_valid and po_df is not None and bank_df is not None:
+    st.header("5. Basic PO vs Bank Matching")
+
+    try:
+        basic_result = match_records(po_df, bank_df)
+        st.dataframe(basic_result, use_container_width=True)
+
+    except Exception as e:
+        st.error(f"Error during basic PO vs Bank matching: {e}")
+
+
+if (
+    po_valid
+    and bank_valid
+    and invoice_valid
+    and po_df is not None
+    and bank_df is not None
+    and invoice_data is not None
+):
+
+    try:
+        recon_result = three_way_match(
+            invoice_data,
+            po_df,
+            bank_df
+        )
+
+        recon_row = recon_result.iloc[0].to_dict()
+
+        duplicate_result = detect_duplicate_payment(
+            invoice_data,
+            bank_df
+        )
+
+        anomalies = detect_anomalies(invoice_data)
+
+        requires_human_review = calculate_human_review_flag(
+            recon_row,
+            duplicate_result,
+            anomalies
+        )
+
+        explanation = generate_explanation(
+            recon_row,
+            duplicate_result,
+            anomalies
+        )
+
+    except Exception as e:
+        st.error(f"Error while running reconciliation workflow: {e}")
+
+
+    st.header("6. Dashboard Summary")
+
+    try:
+        total_invoices = 1
+        matched_count = 1 if recon_row.get("status") == "MATCHED" else 0
+        exception_count = 1 if recon_row.get("status") == "EXCEPTION" else 0
+        duplicate_count = 1 if duplicate_result.get("duplicate_found") else 0
+        anomaly_count = 1 if len(anomalies) > 0 else 0
+        human_review_count = 1 if requires_human_review else 0
+        error_count = 0
+
+        metric_col1, metric_col2, metric_col3, metric_col4 = st.columns(4)
+
+        with metric_col1:
+            st.metric("Total Invoices", total_invoices)
+
+        with metric_col2:
+            st.metric("Matched", matched_count)
+
+        with metric_col3:
+            st.metric("Exceptions", exception_count)
+
+        with metric_col4:
+            st.metric("Human Review", human_review_count)
+
+        metric_col5, metric_col6, metric_col7 = st.columns(3)
+
+        with metric_col5:
+            st.metric("Duplicates", duplicate_count)
+
+        with metric_col6:
+            st.metric("Anomalies", anomaly_count)
+
+        with metric_col7:
+            st.metric("Processing Errors", error_count)
+
+    except Exception as e:
+        st.error(f"Error while preparing dashboard: {e}")
+
+
+    st.header("7. Three-Way Reconciliation Result")
+
+    try:
+        st.dataframe(recon_result, use_container_width=True)
+
+        if recon_row.get("status") == "MATCHED":
+            st.success(
+                "Invoice, Purchase Order, and Bank Payment are matched successfully."
+            )
+        else:
+            st.error(
+                f"Exception found: {recon_row.get('exception_type')}"
+            )
+
+    except Exception as e:
+        st.error(f"Error during three-way reconciliation: {e}")
+
+
+    st.header("8. Duplicate Payment Detection")
+
+    try:
+        if duplicate_result.get("duplicate_found"):
+            st.error(
+                f"Duplicate payment detected. "
+                f"{duplicate_result.get('matched_count')} bank transactions may match this invoice."
+            )
+
+            duplicate_df = pd.DataFrame(
+                duplicate_result.get("matched_transactions", [])
+            )
+
+            st.dataframe(duplicate_df, use_container_width=True)
+
+        else:
+            st.success("No duplicate payment found.")
+
+    except Exception as e:
+        st.error(f"Error during duplicate detection: {e}")
+
+
+    st.header("9. Anomaly Detection")
+
+    try:
+        if anomalies:
+            anomaly_df = pd.DataFrame(anomalies)
+            st.warning("One or more anomalies were detected.")
+            st.dataframe(anomaly_df, use_container_width=True)
+        else:
+            st.success("No anomaly found.")
+
+    except Exception as e:
+        st.error(f"Error during anomaly detection: {e}")
+
+
+    st.header("10. Exception Summary")
+
+    try:
+        exception_summary = prepare_exception_summary(
+            recon_row,
+            duplicate_result,
+            anomalies
+        )
+
+        if exception_summary:
+            exception_df = pd.DataFrame(exception_summary)
+            st.dataframe(exception_df, use_container_width=True)
+        else:
+            st.success("No exception found for this invoice.")
+
+    except Exception as e:
+        st.error(f"Error while preparing exception summary: {e}")
+
+
+    st.header("11. Rule-Based Explanation")
+
+    try:
+        st.info(explanation)
+
+    except Exception as e:
+        st.error(f"Error while showing explanation: {e}")
+
+
+    st.header("12. LangChain AI Reconciliation Review")
+
+    st.write(
+        "This section uses LangChain to generate an AI-powered finance review "
+        "based on reconciliation output, duplicate detection, and anomaly detection."
+    )
+
+    if st.button("Generate LangChain AI Review"):
+        try:
+            ai_review = generate_langchain_review(
+                invoice_data,
+                recon_row,
+                duplicate_result,
+                anomalies
+            )
+
+            st.session_state.ai_review = ai_review
+
+        except Exception as e:
+            st.error(f"LangChain AI Review failed: {e}")
+
+    if st.session_state.ai_review:
+        st.info(st.session_state.ai_review)
+
+
+    st.header("13. Human Approval Queue")
+
+    if requires_human_review:
+        st.warning("This invoice requires human review.")
+    else:
+        st.success("This invoice does not require human review.")
+
+    decision = st.selectbox(
+        "Select Review Decision",
+        [
+            "Pending",
+            "Approve",
+            "Reject",
+            "Ask Vendor",
+            "Escalate to Finance Manager",
+            "Mark as Duplicate"
+        ]
+    )
+
+    comment = st.text_area("Reviewer Comment")
+
+    if st.button("Save Approval Decision"):
+        try:
+            saved_record = save_approval_decision(
+                invoice_data.get("invoice_number"),
+                decision,
+                comment
+            )
+
+            st.session_state.approval_saved = True
+            st.session_state.last_decision = saved_record
+
+            st.success("Approval decision saved successfully.")
+            st.json(saved_record)
+
+        except Exception as e:
+            st.error(f"Error while saving approval decision: {e}")
+
+    if st.session_state.approval_saved and st.session_state.last_decision:
+        st.info("Last saved approval decision:")
+        st.json(st.session_state.last_decision)
+
+
+    st.header("14. Vendor Email Draft")
+
+    try:
+        if requires_human_review:
+            st.subheader("Rule-Based Vendor Email")
+
+            subject, body = draft_vendor_email(
+                invoice_data,
+                recon_row,
+                duplicate_result,
+                anomalies
+            )
+
+            st.text_input(
+                "Rule-Based Email Subject",
+                value=subject
+            )
+
+            st.text_area(
+                "Rule-Based Email Body",
+                value=body,
+                height=250
+            )
+
+            st.subheader("LangChain AI Vendor Email")
+
+            if st.button("Generate LangChain AI Email"):
+                try:
+                    ai_email = generate_langchain_email(
+                        invoice_data,
+                        recon_row,
+                        duplicate_result,
+                        anomalies
+                    )
+
+                    st.session_state.ai_email = ai_email
+
+                except Exception as e:
+                    st.error(f"LangChain AI Email failed: {e}")
+
+            if st.session_state.ai_email:
+                st.text_area(
+                    "AI Generated Email",
+                    value=st.session_state.ai_email,
+                    height=300
+                )
+
+        else:
+            st.success("No vendor email required because this invoice has no exception.")
+
+    except Exception as e:
+        st.error(f"Error while drafting vendor email: {e}")
+
+
+    st.header("15. Download Result")
+
+    try:
+        result_record = {
+            "invoice_number": invoice_data.get("invoice_number"),
+            "vendor_name": invoice_data.get("vendor_name"),
+            "po_number": invoice_data.get("po_number"),
+            "invoice_date": invoice_data.get("invoice_date"),
+            "invoice_amount": invoice_data.get("total_amount"),
+            "status": recon_row.get("status"),
+            "exception_type": recon_row.get("exception_type"),
+            "issues": recon_row.get("issues"),
+            "matched_po": recon_row.get("matched_po"),
+            "matched_transaction": recon_row.get("matched_transaction"),
+            "duplicate_found": duplicate_result.get("duplicate_found"),
+            "duplicate_match_count": duplicate_result.get("matched_count"),
+            "anomaly_count": len(anomalies),
+            "anomalies": " | ".join(
+                [a.get("type", "") for a in anomalies]
+            ) if anomalies else "NONE",
+            "requires_human_review": requires_human_review,
+            "rule_based_explanation": explanation,
+            "langchain_ai_review": st.session_state.ai_review,
+            "langchain_ai_email": st.session_state.ai_email
+        }
+
+        result_df = pd.DataFrame([result_record])
+
+        csv_data = result_df.to_csv(index=False).encode("utf-8")
+
+        st.download_button(
+            label="Download Single Invoice Reconciliation Report",
+            data=csv_data,
+            file_name="single_invoice_reconciliation_report.csv",
+            mime="text/csv"
+        )
+
+    except Exception as e:
+        st.error(f"Error while preparing download file: {e}")
+
+
+else:
+    st.info(
+        "Please upload valid Purchase Order CSV, Bank Statement CSV, and one invoice file "
+        "to run the reconciliation workflow."
+    )

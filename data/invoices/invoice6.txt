@@ -1,0 +1,7 @@
+Vendor: Vision Infotech
+Invoice Number: INV9006
+PO Number: PO1006
+Invoice Date: 2026-07-10
+Subtotal: 50000
+Tax: 25000
+Total Amount: 75000

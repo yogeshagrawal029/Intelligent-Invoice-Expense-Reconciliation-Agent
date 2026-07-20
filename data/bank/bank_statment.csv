@@ -1,0 +1,11 @@
+transaction_id,vendor_name,amount,description,date
+TXN001,ABC Technologies,100000,Payment INV9001,2026-07-10
+TXN002,Global Stationery,16000,Payment INV9002,2026-07-11
+TXN003,ABC Technologies,100000,Payment INV9001,2026-07-12
+TXN004,Tech Solutions,50000,Payment INV9004,2026-07-13
+TXN005,Delta Systems,120000,Payment INV9005,2026-07-14
+TXN006,Vision Infotech,85000,Payment INV9006,2026-07-15
+TXN007,Star Electronics,45000,Payment INV9007,2026-07-16
+TXN008,Prime Office Supplies,35000,Payment INV9008,2026-07-17
+TXN009,Secure Networks,200000,Payment INV9009,2026-07-18
+TXN010,Unknown Vendor,50000,Payment INV9999,2026-07-19

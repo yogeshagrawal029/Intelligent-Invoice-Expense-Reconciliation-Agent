@@ -1,0 +1,5 @@
+invoice_number,decision,comment,decision_time
+INV9001,Reject,,2026-07-16 19:08:04
+INV9001,Reject,,2026-07-16 20:22:38
+INV9002,Approve,,2026-07-17 10:11:29
+INV9001,Approve,,2026-07-17 17:20:37

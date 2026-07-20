@@ -1,0 +1,7 @@
+Vendor: Delta Systems
+Invoice Number: INV9011
+PO Number: PO1005
+Invoice Date: 2026-07-10
+Subtotal: 110000
+Tax: 10000
+Total Amount: 120000

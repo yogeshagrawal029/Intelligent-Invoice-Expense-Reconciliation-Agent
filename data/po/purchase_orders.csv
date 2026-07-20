@@ -1,0 +1,11 @@
+po_number,vendor_name,total_amount,status
+PO1001,ABC Technologies,100000,Approved
+PO1002,Global Stationery,15000,Approved
+PO1003,CloudNet Services,25000,Approved
+PO1004,Tech Solutions,50000,Approved
+PO1005,Delta Systems,120000,Approved
+PO1006,Vision Infotech,85000,Approved
+PO1007,Star Electronics,45000,Approved
+PO1008,Prime Office Supplies,30000,Approved
+PO1009,Secure Networks,200000,Approved
+PO1010,NextGen Software,75000,Approved

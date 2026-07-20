@@ -1,0 +1,7 @@
+Vendor: Global Tech Solutions
+Invoice Number: INV9003
+PO Number: PO1003
+Invoice Date: 2026-07-09
+Subtotal: 25000
+Tax: 0
+Total Amount: 25000
