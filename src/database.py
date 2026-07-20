@@ -6,7 +6,8 @@ DB_NAME = "invoice_agent.db"
 
 
 def get_connection():
-    return sqlite3.connect(DB_NAME)
+    conn = sqlite3.connect(DB_NAME)
+    return conn
 
 
 def initialize_database():
@@ -158,7 +159,6 @@ def get_all_reconciliation_results():
 
     rows = cursor.fetchall()
     conn.close()
-
     return rows
 
 
@@ -186,6 +186,28 @@ def save_approval_to_db(invoice_number, decision, comment):
 
     conn.commit()
     conn.close()
+
+
+def get_approval_records():
+    conn = get_connection()
+    cursor = conn.cursor()
+
+    cursor.execute(
+        """
+        SELECT
+            id,
+            invoice_number,
+            decision,
+            comment,
+            decision_time
+        FROM approval_decisions
+        ORDER BY id DESC
+        """
+    )
+
+    rows = cursor.fetchall()
+    conn.close()
+    return rows
 
 
 def save_email_log(invoice_number, email_to, email_cc, email_bcc, subject, body, send_status):
@@ -232,7 +254,10 @@ def get_email_logs():
             id,
             invoice_number,
             email_to,
+            email_cc,
+            email_bcc,
             subject,
+            body,
             send_status,
             sent_at
         FROM email_logs
@@ -242,5 +267,74 @@ def get_email_logs():
 
     rows = cursor.fetchall()
     conn.close()
-
     return rows
+
+
+def get_failed_email_logs():
+    conn = get_connection()
+    cursor = conn.cursor()
+
+    cursor.execute(
+        """
+        SELECT
+            id,
+            invoice_number,
+            email_to,
+            email_cc,
+            email_bcc,
+            subject,
+            body,
+            send_status,
+            sent_at
+        FROM email_logs
+        WHERE send_status LIKE 'FAILED%'
+           OR send_status LIKE 'NOT_SENT%'
+        ORDER BY id DESC
+        """
+    )
+
+    rows = cursor.fetchall()
+    conn.close()
+    return rows
+
+def update_email_log_status(
+    log_id,
+    email_to,
+    email_cc,
+    email_bcc,
+    subject,
+    body,
+    send_status
+):
+    """
+    Update existing email log after retry.
+    Once status becomes SUCCESS, it will disappear from failed/not sent retry section.
+    """
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute(
+        """
+        UPDATE email_logs
+        SET
+            email_to = ?,
+            email_cc = ?,
+            email_bcc = ?,
+            subject = ?,
+            body = ?,
+            send_status = ?,
+            sent_at = ?
+        WHERE id = ?
+        """,
+        (
+            email_to,
+            email_cc,
+            email_bcc,
+            subject,
+            body,
+            send_status,
+            datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            log_id
+        )
+    )
+    conn.commit()
+    conn.close()

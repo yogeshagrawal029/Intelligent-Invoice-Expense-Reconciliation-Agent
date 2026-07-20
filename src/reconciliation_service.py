@@ -105,9 +105,7 @@ def process_invoice(invoice_file, po_df, bank_df):
         "duplicate_found": duplicate_result.get("duplicate_found"),
         "duplicate_match_count": duplicate_result.get("matched_count"),
         "anomaly_count": len(anomalies),
-        "anomalies": " | ".join(
-            [a.get("type", "") for a in anomalies]
-        ) if anomalies else "NONE",
+        "anomalies": " | ".join([a.get("type", "") for a in anomalies]) if anomalies else "NONE",
         "requires_human_review": requires_human_review,
         "rule_based_explanation": explanation,
         "raw_text": invoice_data.get("raw_text", ""),
