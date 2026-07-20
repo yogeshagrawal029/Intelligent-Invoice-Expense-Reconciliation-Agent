@@ -401,7 +401,7 @@ def render_result_sections(result_record, key_prefix):
                 comment=comment
             )
 
-            st.success("Approval decision saved into Approval Record Section.")
+            st.success("Approval decision saved.")
 
     else:
         st.success("This invoice does not require human review.")
@@ -579,7 +579,7 @@ with tab1:
         try:
             result_record = process_invoice(invoice_file, po_df, bank_df)
             save_reconciliation_result(result_record)
-            st.success("Reconciliation result saved into local SQLite database.")
+            st.success("Reconciliation result saved.")
             render_result_sections(result_record, "single")
 
             st.header("Download Single Invoice Report")
