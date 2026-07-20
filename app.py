@@ -15,10 +15,7 @@ from src.explanation_agent import generate_explanation
 from src.approval_workflow import save_approval_decision
 from src.email_drafter import draft_vendor_email
 
-from src.ai_agent import (
-    generate_langchain_review,
-    generate_langchain_email
-)
+from src.ai_agent import generate_langchain_review, generate_langchain_email
 
 
 # ---------------------------------------------------------
