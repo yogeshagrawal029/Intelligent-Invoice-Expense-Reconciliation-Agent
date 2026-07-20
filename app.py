@@ -41,7 +41,7 @@ initialize_database()
 
 st.markdown(
     """
-    <h1 style='text-align: center; color: #0066cc;'>
+    <h1 style='text-align: center; color: black;'>
         🤖 Intelligent Invoice & Expense Reconciliation Agent
     </h1>
     """,
@@ -477,10 +477,10 @@ def build_download_df(records):
 
 tab1, tab2, tab3, tab4 = st.tabs(
     [
-        "Reconciliation",
-        "Data Records",
-        "Approval Records",
-        "Email Logs and Retry"
+        "Recon Section",
+        "Data Section",
+        "Approval Section",
+        "Email Section"
     ]
 )
 
@@ -696,7 +696,7 @@ with tab1:
 # ---------------------------------------------------------
 
 with tab2:
-    st.header("Stored Reconciliation Results")
+    st.header("Reconciliation Records")
 
     db_rows = get_all_reconciliation_results()
 
@@ -756,7 +756,7 @@ with tab3:
 # ---------------------------------------------------------
 
 with tab4:
-    st.header("Email Logs")
+    st.header("Email Records")
 
     email_rows = get_email_logs()
 
