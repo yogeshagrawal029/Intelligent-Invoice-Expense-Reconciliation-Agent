@@ -2,7 +2,7 @@
 
 ## Overview
 
-The **Intelligent Invoice & Expense Reconciliation Agent** is a capstone project that automates invoice reconciliation using document parsing, OCR, rule-based matching, anomaly detection, human approval workflow, and **LangChain-powered AI review**.
+The **Intelligent Invoice & Expense Reconciliation Agent** is a Streamlit-based capstone project that automates invoice reconciliation using document parsing, OCR, rule-based matching, anomaly detection, human approval workflow, SMTP email automation, SQLite persistence, role-based access control, audit logging, and **LangChain-powered AI review**.
 
 The application performs three-way matching between:
 
@@ -10,13 +10,13 @@ The application performs three-way matching between:
 Purchase Order  ↔  Invoice  ↔  Bank Statement
 ```
 
-It extracts invoice details from TXT, PDF, and image files, validates them against purchase orders and bank transactions, detects mismatches, duplicate payments, anomalies, and routes exceptions for human review. LangChain is used to generate AI-powered reconciliation explanations and professional vendor email drafts.
+It extracts invoice details from TXT, PDF, and image files, validates invoices against purchase orders and bank transactions, detects mismatches, duplicate payments, anomalies, and routes exceptions for human review. LangChain is used to generate business-friendly AI reconciliation explanations and professional vendor email drafts.
 
 ---
 
 ## Problem Statement
 
-Manual invoice reconciliation is time-consuming, error-prone, and difficult to scale. Finance teams often need to manually verify invoices against purchase orders and bank payments.
+Manual invoice reconciliation is time-consuming, error-prone, and difficult to scale. Finance and operations teams often need to manually verify invoices against purchase orders and bank payments.
 
 Common issues include:
 
@@ -29,27 +29,262 @@ Common issues include:
 - High-value invoice
 - Unknown vendor
 - Missing invoice details
+- Unauthorized or untracked approvals
+- Email communication delays
+- Lack of audit trail for user actions
 
-This project automates the reconciliation process and surfaces only the exceptions that require human attention.
+This project automates reconciliation, stores results in a database, enables controlled human review, sends vendor communication, and maintains an audit-ready activity log.
 
 ---
 
 ## Key Features
 
+### Reconciliation Features
+
 - Upload Purchase Order CSV
 - Upload Bank Statement CSV
-- Upload Single Invoice File
+- Upload single invoice file
+- Upload multiple invoice files for bulk processing
 - Extract invoice fields from TXT, PDF, PNG, JPG, and JPEG files
-- Perform three-way reconciliation
-- Detect duplicate payments
-- Detect anomalies
+- Perform three-way matching between PO, invoice, and bank statement
+- Detect amount mismatch
+- Detect vendor mismatch
+- Detect missing or invalid PO
+- Detect missing payment
+- Detect duplicate payment
+- Detect high tax anomaly
+- Detect high-value invoice anomaly
 - Generate rule-based exception explanation
+- Prevent duplicate reconciliation database entries for the same invoice
+- Store reconciliation results in SQLite database
+
+### LangChain AI Features
+
 - Generate LangChain AI reconciliation review
-- Route exceptions to human approval queue
-- Generate rule-based vendor email draft
-- Generate LangChain AI vendor email draft
-- Download reconciliation report as CSV
-- Streamlit dashboard for easy demo and review
+- Generate business-friendly exception explanation
+- Generate risk-level summary
+- Generate recommended next action
+- Generate LangChain vendor email draft
+- Allow human review before email sending
+
+### Human Approval Workflow
+
+- Route exceptions to human approval
+- Save approval decision to SQLite database
+- Store reviewer comments
+- Store the username of the approver in the Approval Section
+- Display approval records with:
+
+```text
+id
+invoice_number
+decision
+comment
+approved_by
+decision_time
+```
+
+### Email Features
+
+- Send vendor email from the application using SMTP
+- Support To, CC, and BCC fields
+- Save email logs in SQLite database
+- Save unsent emails as drafts
+- View all email logs
+- Retry failed or unsent emails
+- Remove failed email from retry list after successful retry
+- Send password reset code by email
+- Send initial temporary password by email
+- Send temporary password from User Management fallback flow
+- Send password change notification email after password update
+
+### User Authentication and RBAC
+
+- Login and logout
+- Forgot password flow
+- Password reset using email reset code
+- First-time login password reset enforcement
+- SQLite-based user management
+- Role-based access control
+
+Supported roles:
+
+```text
+Admin
+Editor
+Email Sender
+Viewer
+Pending
+```
+
+### User Management Features
+
+- View all users
+- Create users
+- Edit users
+- Delete users
+- Activate or deactivate users
+- Assign roles
+- Prevent duplicate username
+- Prevent duplicate email address
+- Normalize email addresses to lowercase
+- Display User Management table with separate action columns:
+
+```text
+Edit | Delete | Send Password
+```
+
+### Super Admin and Admin Role Rules
+
+Only the exact username below can create, edit, delete, or update users:
+
+```text
+admin
+```
+
+The default `admin` user can:
+
+```text
+Create users
+Edit users
+Delete users
+Update users
+Send temporary password to any user
+View User Management tab
+View Audit Logs tab
+Perform all operational admin activities
+```
+
+Any other user with role `Admin` can:
+
+```text
+View User Management tab
+View Audit Logs tab
+Perform operational admin activities
+Send temporary password to non-default-admin users
+```
+
+Any other user with role `Admin` cannot:
+
+```text
+Create users
+Edit users
+Delete users
+Update users
+Reset default admin password
+```
+
+### Password Policy Features
+
+Passwords must follow these rules:
+
+```text
+Allowed characters:
+A-Z
+a-z
+0-9
+@ # !
+
+Required:
+At least one uppercase letter
+At least one lowercase letter
+At least one number
+At least one special character from @, #, !
+
+Length:
+Minimum 10 characters
+Maximum 16 characters
+
+Blocked:
+Sequential numbers like 1234 or 12345
+Sequential letters like abcd or ABCD
+Reverse sequences like dcba or 4321
+Same character repeated 4 or more times
+
+History:
+Last 3 passwords cannot be reused
+```
+
+### First-Time Password Flow
+
+When Admin creates a user:
+
+1. Admin enters username, email, role, and status.
+2. Admin does not enter a password.
+3. The application generates a compliant temporary password.
+4. The temporary password is sent to the user's registered email.
+5. User logs in using the temporary password.
+6. User is forced to reset the password.
+7. User must login again using the new password.
+
+### First-Time Admin Setup
+
+On the very first launch, if the default `admin` user does not exist:
+
+1. The application generates a compliant temporary admin password.
+2. The temporary password is sent to `DEFAULT_ADMIN_EMAIL`.
+3. The admin user is created with `must_change_password=1`.
+4. Admin logs in with the temporary password.
+5. Admin is forced to reset password.
+6. Admin logs in again with the new password.
+
+No hardcoded admin password is required in `.env`.
+
+### Forgot Password Fallback
+
+If Forgot Password email or reset code sending fails, an Admin role user can use User Management:
+
+```text
+User Management → Send Password column → 🔑
+```
+
+This action:
+
+1. Generates a compliant temporary password.
+2. Updates the selected user's password.
+3. Sets `must_change_password=1`.
+4. Attempts to send the temporary password by email.
+5. If email fails, shows the temporary password once on screen to the Admin.
+6. Logs the event in the audit table.
+
+### Audit Logging Features
+
+The application logs user activities in SQLite for future audit purposes.
+
+Logged events include:
+
+```text
+LOGIN success
+LOGIN failed
+LOGOUT
+PASSWORD_RESET_CODE_REQUEST success
+PASSWORD_RESET_CODE_REQUEST failed
+PASSWORD_RESET success
+PASSWORD_RESET failed
+FIRST_LOGIN_PASSWORD_CHANGE_REQUIRED
+FIRST_LOGIN_PASSWORD_RESET
+USER_CREATED
+USER_UPDATED
+USER_DELETED
+INITIAL_PASSWORD_SENT
+TEMPORARY_PASSWORD_SENT_FROM_USER_MANAGEMENT
+INVOICE_APPROVAL_SAVED
+```
+
+Audit records include:
+
+```text
+event_type
+actor_username
+target_username
+target_email
+actor_role
+status
+ip_address
+user_agent
+details
+created_at
+```
 
 ---
 
@@ -59,17 +294,20 @@ LangChain is used as the AI layer of the project.
 
 It is used for:
 
-1. **AI Reconciliation Review Agent**
-   - Reads invoice data, reconciliation result, duplicate result, and anomaly result.
-   - Generates a business-friendly explanation.
-   - Provides risk level and recommended action.
+### 1. AI Reconciliation Review Agent
 
-2. **AI Vendor Email Draft Agent**
-   - Reads the exception details.
-   - Drafts a professional vendor email.
-   - Creates communication based on actual reconciliation findings.
+- Reads invoice data, reconciliation result, duplicate result, and anomaly result.
+- Generates a business-friendly explanation.
+- Provides risk level and recommended action.
+- Helps reviewers understand why an invoice requires attention.
 
-The financial matching logic is still rule-based because reconciliation must be deterministic and auditable. LangChain is added on top of the matching engine to improve explanation, review, and communication.
+### 2. AI Vendor Email Draft Agent
+
+- Reads exception details.
+- Drafts professional vendor communication.
+- Creates email content based on reconciliation findings.
+
+The financial matching logic remains rule-based because reconciliation must be deterministic and auditable. LangChain is added on top of the matching engine to improve explanation, review, and communication.
 
 ---
 
@@ -78,50 +316,55 @@ The financial matching logic is still rule-based because reconciliation must be 
 ### Core Development
 
 - **Python**  
-  Used as the main programming language for document processing, matching logic, anomaly detection, and workflow automation.
+  Main programming language for document processing, matching, anomaly detection, authentication, audit logging, and workflow automation.
 
 - **VS Code**  
-  Used as the primary development environment for coding, debugging, and project management.
+  Development environment for coding and debugging.
 
 ### Frontend
 
 - **Streamlit**  
-  Used to build the interactive web dashboard for uploading files, viewing results, approving exceptions, and downloading reports.
+  Web dashboard for authentication, file upload, reconciliation, approval, email logs, user management, and audit logs.
 
 ### Data Processing
 
 - **Pandas**  
-  Used for reading, cleaning, transforming, and analyzing purchase order CSV and bank statement CSV files.
+  Used for reading, cleaning, transforming, and displaying CSV and database records.
 
 ### Document Parsing and OCR
 
 - **pdfplumber**  
-  Used to extract text from PDF invoices.
+  Extracts text from PDF invoices.
 
 - **PyMuPDF**  
-  Used for PDF handling and future support for complex or scanned PDF files.
+  Supports PDF handling and scanned PDF workflows.
 
 - **Tesseract OCR**  
-  Used to extract text from invoice images and scanned documents.
+  Extracts text from invoice images and scanned documents.
 
 - **pytesseract**  
-  Python wrapper used to connect Tesseract OCR with the application.
+  Python wrapper for Tesseract OCR.
 
 ### AI and Agentic Layer
 
 - **LangChain**  
-  Used to build the AI reconciliation review agent and vendor email drafting agent.
+  Builds the AI reconciliation review and AI vendor email drafting flow.
 
 - **langchain-openai**  
-  Used to connect LangChain with OpenAI chat models.
+  Connects LangChain with OpenAI chat models.
 
 - **OpenAI API**  
-  Used by LangChain to generate AI-powered explanations and email drafts.
+  Generates AI-powered explanations and email drafts.
 
-### Storage
+### Database and Storage
 
-- **CSV Files**  
-  Used for purchase orders, bank statements, approval decisions, and downloadable reconciliation reports.
+- **SQLite**  
+  Stores users, reconciliation results, approvals, email logs, password reset tokens, password history, and audit logs.
+
+### Email
+
+- **SMTP**  
+  Sends vendor emails, password reset codes, temporary passwords, and password change notifications.
 
 ---
 
@@ -134,20 +377,12 @@ invoice-reconciliation-agent/
 ├── requirements.txt
 ├── README.md
 ├── .env
+├── invoice_agent.db
 │
 ├── data/
 │   ├── invoices/
-│   │   ├── invoice1.txt
-│   │   ├── invoice2.txt
-│   │   ├── invoice3.txt
-│   │   ├── invoice4.txt
-│   │   ├── invoice5.txt
-│   │   ├── invoice6.txt
-│   │   └── invoice7.txt
-│   │
 │   ├── po/
 │   │   └── purchase_orders.csv
-│   │
 │   └── bank/
 │       └── bank_statement.csv
 │
@@ -161,86 +396,185 @@ invoice-reconciliation-agent/
 │   ├── anomaly_detector.py
 │   ├── explanation_agent.py
 │   ├── ai_agent.py
-│   ├── approval_workflow.py
-│   └── email_drafter.py
+│   ├── reconciliation_service.py
+│   ├── database.py
+│   ├── auth_service.py
+│   └── email_sender.py
 │
 └── output/
-    └── approval_decisions.csv
+```
+
+> Note: `email_drafter.py` is no longer required if vendor email drafting is handled by `generate_langchain_email()` in `src/ai_agent.py` and email sending is handled by `src/email_sender.py`.
+
+---
+
+## SQLite Tables
+
+The application uses these main SQLite tables:
+
+```text
+users
+password_history
+password_reset_tokens
+reconciliation_results
+approval_decisions
+email_logs
+user_activity_audit
+```
+
+### users
+
+Stores user profile and authentication metadata.
+
+```text
+id
+username
+email
+password_hash
+role
+is_active
+must_change_password
+created_at
+```
+
+### password_history
+
+Stores password hashes for last-password reuse prevention.
+
+```text
+id
+username
+password_hash
+created_at
+```
+
+### password_reset_tokens
+
+Stores reset codes for forgot password flow.
+
+```text
+id
+username
+email
+reset_code
+is_used
+expires_at
+created_at
+```
+
+### reconciliation_results
+
+Stores invoice reconciliation results.
+
+### approval_decisions
+
+Stores approval decisions and approver username.
+
+```text
+id
+invoice_number
+decision
+comment
+approved_by
+decision_time
+```
+
+### email_logs
+
+Stores sent, failed, and draft email records.
+
+### user_activity_audit
+
+Stores full user and admin activity logs.
 
 ---
 
 ## Workflow
 
 ```text
+Login
+  ↓
 Upload PO CSV
-      ↓
+  ↓
 Upload Bank Statement CSV
-      ↓
-Upload Single Invoice
-      ↓
+  ↓
+Upload Invoice or Multiple Invoices
+  ↓
 Extract Invoice Data
-      ↓
+  ↓
 Perform Three-Way Matching
-      ↓
+  ↓
 Detect Duplicate Payments
-      ↓
+  ↓
 Detect Anomalies
-      ↓
+  ↓
 Generate Rule-Based Explanation
-      ↓
+  ↓
 Generate LangChain AI Review
-      ↓
-Human Approval Queue
-      ↓
+  ↓
+Human Approval Workflow
+  ↓
+Save Approval with approved_by user
+  ↓
 Generate Vendor Email Draft
-      ↓
-Download Reconciliation Report
+  ↓
+Send Email or Save Draft
+  ↓
+Store Results, Logs, and Audit Trail in SQLite
 ```
 
 ---
 
 ## Invoice Test Scenarios
 
-The project includes multiple invoice scenarios for testing:
+The project supports these test scenarios:
 
-1. **Invoice 1: Perfect Match**
+1. **Perfect Match**
    - PO, invoice, and bank payment match correctly.
 
-2. **Invoice 2: Amount Mismatch**
+2. **Amount Mismatch**
    - Invoice amount does not match PO amount or bank payment amount.
 
-3. **Invoice 3: Vendor Mismatch**
+3. **Vendor Mismatch**
    - Vendor name on invoice does not match vendor in PO.
 
-4. **Invoice 4: Missing PO**
+4. **Missing PO**
    - Invoice does not contain a valid PO number.
 
-5. **Invoice 5: No Payment Found**
+5. **No Payment Found**
    - Invoice exists but matching bank transaction is missing.
 
-6. **Invoice 6: High Tax Anomaly**
+6. **High Tax Anomaly**
    - Tax percentage is higher than expected threshold.
 
-7. **Invoice 7: High Value Invoice**
+7. **High Value Invoice**
    - Invoice amount is above high-value review threshold.
+
+8. **Duplicate Payment**
+   - Multiple bank transactions may match the same invoice.
+
+9. **Processing Error**
+   - Invoice file cannot be parsed or processed.
 
 ---
 
 ## Supported Exceptions
 
-- `AMOUNT_MISMATCH`
-- `BANK_AMOUNT_MISMATCH`
-- `VENDOR_MISMATCH`
-- `PAYMENT_NOT_FOUND`
-- `MISSING_OR_INVALID_PO`
-- `MISSING_PO`
-- `DUPLICATE_PAYMENT`
-- `HIGH_TAX`
-- `HIGH_VALUE_INVOICE`
-- `UNKNOWN_VENDOR`
-- `INVALID_AMOUNT`
-- `MISSING_INVOICE_DATE`
-- `PROCESSING_ERROR`
+```text
+AMOUNT_MISMATCH
+BANK_AMOUNT_MISMATCH
+VENDOR_MISMATCH
+PAYMENT_NOT_FOUND
+MISSING_OR_INVALID_PO
+MISSING_PO
+DUPLICATE_PAYMENT
+HIGH_TAX
+HIGH_VALUE_INVOICE
+UNKNOWN_VENDOR
+INVALID_AMOUNT
+MISSING_INVOICE_DATE
+PROCESSING_ERROR
+```
 
 ---
 
@@ -254,14 +588,17 @@ python -m venv venv
 
 ### 2. Activate Virtual Environment
 
-For Windows:
+For Windows CMD:
 
 ```bash
 venv\Scripts\activate
 ```
 
-```bash
-(Set-ExecutionPolicy -Scope Process -ExecutionPolicy RemoteSigned) ; (& c:\Users\user\Downloads\invoice-reconciliation-agent\venv\Scripts\Activate.ps1)
+For Windows PowerShell:
+
+```powershell
+Set-ExecutionPolicy -Scope Process -ExecutionPolicy RemoteSigned
+.\venv\Scripts\Activate.ps1
 ```
 
 For macOS/Linux:
@@ -276,7 +613,7 @@ source venv/bin/activate
 pip install -r requirements.txt
 ```
 
-If LangChain packages are not installed, install them manually:
+If LangChain packages are missing:
 
 ```bash
 pip install langchain langchain-openai python-dotenv
@@ -289,10 +626,31 @@ pip install langchain langchain-openai python-dotenv
 Create a `.env` file in the project root:
 
 ```env
-OPENAI_API_KEY=your_api_key_here
+OPENAI_API_KEY=your_openai_api_key_here
+
+SMTP_SERVER=smtp.gmail.com
+SMTP_PORT=587
+SMTP_EMAIL=yourgmail@gmail.com
+SMTP_PASSWORD=your_16_character_gmail_app_password
+
+DEFAULT_ADMIN_USERNAME=admin
+DEFAULT_ADMIN_EMAIL=yourgmail@gmail.com
 ```
 
-Do not commit `.env` to GitHub because it contains a secret key.
+Do not commit `.env` to GitHub because it contains secrets.
+
+---
+
+## First Launch Admin Setup
+
+On first launch, if the `admin` user does not exist:
+
+```text
+Username: admin
+Temporary password: sent to DEFAULT_ADMIN_EMAIL
+```
+
+Admin must reset the temporary password on first login.
 
 ---
 
@@ -348,8 +706,6 @@ Total Amount: 100000
 
 ## LangChain AI Review Example
 
-LangChain generates a review like:
-
 ```text
 1. Executive Summary
 Invoice INV9002 requires review because the invoice amount does not match the purchase order amount.
@@ -394,12 +750,14 @@ The application produces:
 - Three-way reconciliation result
 - Duplicate payment result
 - Anomaly detection result
-- Rule-based explanation
+- Rule-based exception explanation
 - LangChain AI reconciliation review
-- Human approval decision
-- Rule-based vendor email draft
+- Human approval decision with approver username
 - LangChain AI vendor email draft
-- Downloadable CSV reconciliation report
+- Email send logs
+- Failed email retry queue
+- User activity audit logs
+- SQLite-backed reconciliation history
 
 ---
 
@@ -416,6 +774,12 @@ This project demonstrates:
 - Human-in-the-loop workflow
 - LangChain-based AI review agent
 - Vendor email draft automation
+- SMTP email integration
+- SQLite database integration
+- Login and role-based access control
+- Secure password policy enforcement
+- Password reset and first-login reset workflows
+- User management and audit logging
 - Streamlit dashboard development
 - End-to-end capstone project design
 
@@ -423,15 +787,17 @@ This project demonstrates:
 
 ## Future Enhancements
 
-- Bulk invoice processing
-- SQLite or PostgreSQL database integration
-- Azure AI Document Intelligence integration
+- PostgreSQL database integration
+- Microsoft Graph email integration
+- Azure AI Document Intelligence
 - Advanced ML anomaly detection
-- User login and role-based access control
-- Email sending through SMTP or Microsoft Graph API
-- REST API using FastAPI
-- Deployment on cloud platform
-- Audit trail and approval history dashboard
+- FastAPI backend service
+- Docker deployment
+- Cloud deployment
+- Export audit reports
+- Approval workflow notifications
+- Multi-level approval routing
+- Dashboard analytics for finance KPIs
 
 ---
 
