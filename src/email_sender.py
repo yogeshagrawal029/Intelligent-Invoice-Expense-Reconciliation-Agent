@@ -1,6 +1,5 @@
 import smtplib
 from email.message import EmailMessage
-
 from src.config import get_secret
 
 
@@ -15,28 +14,21 @@ def send_email_from_app(to_emails, cc_emails, bcc_emails, subject, body):
     smtp_port = int(get_secret("SMTP_PORT", "587"))
     smtp_email = get_secret("SMTP_EMAIL", required=True)
     smtp_password = get_secret("SMTP_PASSWORD", required=True)
-
     to_list = parse_email_list(to_emails)
     cc_list = parse_email_list(cc_emails)
     bcc_list = parse_email_list(bcc_emails)
-
     if not to_list:
         raise ValueError("At least one recipient email is required in TO field.")
-
-    all_recipients = to_list + cc_list + bcc_list
-
-    message = EmailMessage()
-    message["From"] = smtp_email
-    message["To"] = ", ".join(to_list)
+    msg = EmailMessage()
+    msg["From"] = smtp_email
+    msg["To"] = ", ".join(to_list)
     if cc_list:
-        message["Cc"] = ", ".join(cc_list)
-    message["Subject"] = subject
-    message.set_content(body)
-
+        msg["Cc"] = ", ".join(cc_list)
+    msg["Subject"] = subject
+    msg.set_content(body)
     with smtplib.SMTP(smtp_server, smtp_port) as server:
         server.starttls()
         server.login(smtp_email, smtp_password)
-        server.send_message(message, from_addr=smtp_email, to_addrs=all_recipients)
-
+        server.send_message(msg, from_addr=smtp_email, to_addrs=to_list + cc_list + bcc_list)
     return {"status": "success", "message": "Email sent successfully.", "to": to_list, "cc": cc_list, "bcc": bcc_list}
 
