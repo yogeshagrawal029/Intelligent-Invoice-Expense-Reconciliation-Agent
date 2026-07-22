@@ -5,8 +5,8 @@ import secrets
 import random
 import string
 from datetime import datetime, timedelta
-from dotenv import load_dotenv
 
+from src.config import get_secret, get_int_secret
 from src.database import (
     create_user,
     get_user_by_username,
@@ -17,16 +17,25 @@ from src.database import (
     save_password_reset_code,
     get_valid_password_reset_code,
     mark_reset_code_used,
+    save_login_otp,
+    get_valid_login_otp,
+    mark_login_otp_used,
 )
 from src.email_sender import send_email_from_app
-
-load_dotenv()
 
 MIN_PASSWORD_LENGTH = 10
 MAX_PASSWORD_LENGTH = 16
 PASSWORD_HISTORY_LIMIT = 3
 ALLOWED_SPECIALS = "@#!"
 ALLOWED_PASSWORD_REGEX = re.compile(r"^[A-Za-z0-9@#!]+$")
+
+
+def get_password_expiry_days():
+    return get_int_secret("PASSWORD_EXPIRY_DAYS", 60)
+
+
+def get_login_otp_expiry_minutes():
+    return get_int_secret("LOGIN_OTP_EXPIRY_MINUTES", 10)
 
 
 def validate_password_policy(password):
@@ -54,14 +63,17 @@ def validate_password_policy(password):
 
 
 def has_repeated_character_run(password, run_length=4):
-    normalized = password.lower(); count = 1; previous = ""
+    normalized = password.lower()
+    count = 1
+    previous = ""
     for char in normalized:
         if char == previous:
             count += 1
             if count >= run_length:
                 return True
         else:
-            count = 1; previous = char
+            count = 1
+            previous = char
     return False
 
 
@@ -87,6 +99,7 @@ Password rules:
 - Password must not contain sequential patterns like 1234, 12345, abcd, or dcba.
 - Password must not contain the same character repeated 4 or more times.
 - Last {PASSWORD_HISTORY_LIMIT} passwords cannot be reused.
+- Password expires after {get_password_expiry_days()} days.
 """
 
 
@@ -112,12 +125,27 @@ def password_was_used_recently(username, new_password):
     return False
 
 
+def is_password_expired(password_changed_at):
+    if not password_changed_at:
+        return True
+    try:
+        changed_at = datetime.strptime(password_changed_at, "%Y-%m-%d %H:%M:%S")
+    except Exception:
+        return True
+    return datetime.now() >= changed_at + timedelta(days=get_password_expiry_days())
+
+
 def generate_initial_password(length=12):
     length = max(MIN_PASSWORD_LENGTH, min(length, MAX_PASSWORD_LENGTH))
     while True:
-        chars = [secrets.choice(string.ascii_uppercase), secrets.choice(string.ascii_lowercase), secrets.choice(string.digits), secrets.choice(ALLOWED_SPECIALS)]
-        allowed_pool = string.ascii_letters + string.digits + ALLOWED_SPECIALS
-        chars.extend(secrets.choice(allowed_pool) for _ in range(length - len(chars)))
+        chars = [
+            secrets.choice(string.ascii_uppercase),
+            secrets.choice(string.ascii_lowercase),
+            secrets.choice(string.digits),
+            secrets.choice(ALLOWED_SPECIALS),
+        ]
+        pool = string.ascii_letters + string.digits + ALLOWED_SPECIALS
+        chars.extend(secrets.choice(pool) for _ in range(length - len(chars)))
         secrets.SystemRandom().shuffle(chars)
         password = "".join(chars)
         valid, _ = validate_password_policy(password)
@@ -143,7 +171,7 @@ Regards,
 Invoice Reconciliation Agent
 """
     try:
-        send_email_from_app(to_emails=email, cc_emails="", bcc_emails="", subject=subject, body=body)
+        send_email_from_app(email, "", "", subject, body)
         return True, "Initial password email sent successfully."
     except Exception as e:
         return False, f"Initial password email failed: {e}"
@@ -158,62 +186,99 @@ Your password for the Intelligent Invoice & Expense Reconciliation Agent was cha
 
 Change type: {change_context}
 
-If you performed this action, no further action is required.
 If you did not perform this action, please contact the application administrator immediately.
 
 Regards,
 Invoice Reconciliation Agent
 """
     try:
-        send_email_from_app(to_emails=email, cc_emails="", bcc_emails="", subject=subject, body=body)
+        send_email_from_app(email, "", "", subject, body)
         return True, "Password change notification email sent successfully."
     except Exception as e:
         return False, f"Password changed, but notification email failed: {e}"
 
 
-def send_temporary_password_for_user(username):
+def send_login_otp_email(username, email, otp_code):
+    expiry_minutes = get_login_otp_expiry_minutes()
+    subject = "Login OTP - Invoice Reconciliation Agent"
+    body = f"""
+Hello {username},
+
+Your login OTP for the Intelligent Invoice & Expense Reconciliation Agent is:
+
+{otp_code}
+
+This OTP will expire in {expiry_minutes} minutes.
+
+If you did not attempt to login, please contact the application administrator immediately.
+
+Regards,
+Invoice Reconciliation Agent
+"""
+    try:
+        send_email_from_app(email, "", "", subject, body)
+        return True, "Login OTP sent successfully."
+    except Exception as e:
+        return False, f"Login OTP email failed: {e}"
+
+
+def request_login_otp(username):
     user = get_user_by_username(username)
     if not user:
-        return False, "User not found.", None, False, None
-    user_id, db_username, email, password_hash, role, is_active, created_at, must_change_password = user
-    if int(is_active) != 1:
-        return False, "User account is inactive. Activate the user before sending a temporary password.", email, False, None
-    temporary_password = generate_initial_password(length=12)
-    update_user_password(username=db_username, new_password_hash=hash_password(temporary_password), must_change_password=1)
-    email_success, email_message = send_initial_password_email(db_username, email, temporary_password)
-    if email_success:
-        return True, "Temporary password sent successfully. User must reset password on next login.", email, True, None
-    return True, f"Temporary password generated and set, but email failed: {email_message}", email, False, temporary_password
+        return False, "User not found.", None
+    user_id, db_username, email, password_hash, role, is_active, created_at, must_change_password, password_changed_at = user
+    otp_code = str(random.randint(100000, 999999))
+    expires_at = (datetime.now() + timedelta(minutes=get_login_otp_expiry_minutes())).strftime("%Y-%m-%d %H:%M:%S")
+    save_login_otp(db_username, email, otp_code, expires_at)
+    email_success, message = send_login_otp_email(db_username, email, otp_code)
+    return email_success, message, {"username": db_username, "email": email, "role": role}
 
 
-def register_user(username, email, password):
-    username = username.strip(); email = email.strip().lower()
-    valid, msg = validate_password_policy(password)
-    if not valid: return False, msg
-    if get_user_by_username(username): return False, "Username already exists."
-    if get_user_by_email(email): return False, "Email address already exists."
-    if password_was_used_recently(username, password): return False, f"You cannot reuse your last {PASSWORD_HISTORY_LIMIT} passwords."
-    create_user(username=username, email=email, password_hash=hash_password(password), role="Pending", is_active=0, must_change_password=0)
-    return True, "Registration successful. Please wait for admin approval."
+def verify_login_otp(username, otp_code):
+    record = get_valid_login_otp(username, otp_code)
+    if not record:
+        return False, "Invalid or already used OTP."
+    otp_id, db_username, email, db_otp, is_used, expires_at, created_at = record
+    try:
+        expires_at_dt = datetime.strptime(expires_at, "%Y-%m-%d %H:%M:%S")
+    except Exception:
+        return False, "Invalid OTP expiry time."
+    if datetime.now() > expires_at_dt:
+        return False, "OTP has expired. Please login again."
+    mark_login_otp_used(otp_id)
+    return True, "OTP verified successfully."
 
 
 def authenticate_user(username, password):
     user = get_user_by_username(username)
-    if not user: return False, "Invalid username or password.", None
-    user_id, db_username, email, password_hash, role, is_active, created_at, must_change_password = user
-    if int(is_active) != 1: return False, "User is not active. Please contact admin.", None
-    if not verify_password(password, password_hash): return False, "Invalid username or password.", None
-    return True, "Login successful.", {"id": user_id, "username": db_username, "email": email, "role": role, "is_active": is_active, "must_change_password": must_change_password}
+    if not user:
+        return False, "Invalid username or password.", None
+    user_id, db_username, email, password_hash, role, is_active, created_at, must_change_password, password_changed_at = user
+    if int(is_active) != 1:
+        return False, "User is not active. Please contact admin.", None
+    if not verify_password(password, password_hash):
+        return False, "Invalid username or password.", None
+
+    password_expired = is_password_expired(password_changed_at)
+    user_data = {
+        "id": user_id,
+        "username": db_username,
+        "email": email,
+        "role": role,
+        "is_active": is_active,
+        "must_change_password": must_change_password,
+        "password_expired": password_expired,
+    }
+    return True, "Password verified successfully. OTP is required to continue.", user_data
 
 
 def create_default_admin():
-    admin_username = os.getenv("DEFAULT_ADMIN_USERNAME", "admin")
-    admin_email = os.getenv("DEFAULT_ADMIN_EMAIL", os.getenv("SMTP_EMAIL", "admin@example.com")).strip().lower()
-    existing_admin = get_user_by_username(admin_username)
-    if existing_admin:
+    admin_username = get_secret("DEFAULT_ADMIN_USERNAME", "admin")
+    admin_email = get_secret("DEFAULT_ADMIN_EMAIL", get_secret("SMTP_EMAIL", "admin@example.com")).strip().lower()
+    if get_user_by_username(admin_username):
         return
-    temporary_password = generate_initial_password(length=12)
-    create_user(username=admin_username, email=admin_email, password_hash=hash_password(temporary_password), role="Admin", is_active=1, must_change_password=1)
+    temporary_password = generate_initial_password(12)
+    create_user(admin_username, admin_email, hash_password(temporary_password), role="Admin", is_active=1, must_change_password=1)
     send_initial_password_email(admin_username, admin_email, temporary_password)
 
 
@@ -233,19 +298,18 @@ def generate_reset_code():
 
 
 def request_password_reset(username_or_email):
-    username_or_email = username_or_email.strip()
-    user = get_user_by_username(username_or_email) or get_user_by_email(username_or_email.lower())
-    if not user: return False, "No user found with this username or email."
-    user_id, username, email, password_hash, role, is_active, created_at, must_change_password = user
-    if int(is_active) != 1: return False, "User account is inactive. Please contact admin."
+    user = get_user_by_username(username_or_email.strip()) or get_user_by_email(username_or_email.strip().lower())
+    if not user:
+        return False, "No user found with this username or email."
+    user_id, username, email, password_hash, role, is_active, created_at, must_change_password, password_changed_at = user
+    if int(is_active) != 1:
+        return False, "User account is inactive. Please contact admin."
     reset_code = generate_reset_code()
     expires_at = (datetime.now() + timedelta(minutes=15)).strftime("%Y-%m-%d %H:%M:%S")
-    save_password_reset_code(username=username, email=email, reset_code=reset_code, expires_at=expires_at)
+    save_password_reset_code(username, email, reset_code, expires_at)
     subject = "Password Reset Code - Invoice Reconciliation Agent"
     body = f"""
 Hello {username},
-
-You requested to reset your password for the Intelligent Invoice & Expense Reconciliation Agent.
 
 Your password reset code is:
 
@@ -253,17 +317,13 @@ Your password reset code is:
 
 This code will expire in 15 minutes.
 
-When you reset your password, use the password rules below:
-
 {password_policy_text()}
-
-If you did not request this reset, please ignore this email.
 
 Regards,
 Invoice Reconciliation Agent
 """
     try:
-        send_email_from_app(to_emails=email, cc_emails="", bcc_emails="", subject=subject, body=body)
+        send_email_from_app(email, "", "", subject, body)
         return True, "Password reset code has been sent to your registered email."
     except Exception as e:
         return False, f"Reset code generated but email sending failed: {e}"
@@ -271,31 +331,48 @@ Invoice Reconciliation Agent
 
 def reset_password_with_code(username, reset_code, new_password):
     valid, msg = validate_password_policy(new_password)
-    if not valid: return False, msg
-    if password_was_used_recently(username, new_password): return False, f"You cannot reuse your last {PASSWORD_HISTORY_LIMIT} passwords."
+    if not valid:
+        return False, msg
+    if password_was_used_recently(username, new_password):
+        return False, f"You cannot reuse your last {PASSWORD_HISTORY_LIMIT} passwords."
     reset_record = get_valid_password_reset_code(username, reset_code)
-    if not reset_record: return False, "Invalid or already used reset code."
+    if not reset_record:
+        return False, "Invalid or already used reset code."
     reset_id, db_username, email, db_reset_code, is_used, expires_at, created_at = reset_record
     if datetime.now() > datetime.strptime(expires_at, "%Y-%m-%d %H:%M:%S"):
         return False, "Reset code has expired. Please request a new code."
-    update_user_password(username=db_username, new_password_hash=hash_password(new_password), must_change_password=0)
+    update_user_password(db_username, hash_password(new_password), must_change_password=0)
     mark_reset_code_used(reset_id)
-    email_success, email_message = send_password_changed_email(db_username, email, "forgot password reset")
-    if email_success:
-        return True, "Password reset successful. You can now login with your new password. Confirmation email sent."
-    return True, email_message
+    send_password_changed_email(db_username, email, "forgot password reset")
+    return True, "Password reset successful. Please login with your new password."
 
 
 def change_password_first_login(username, new_password):
     valid, msg = validate_password_policy(new_password)
-    if not valid: return False, msg
-    if password_was_used_recently(username, new_password): return False, f"You cannot reuse your last {PASSWORD_HISTORY_LIMIT} passwords."
+    if not valid:
+        return False, msg
+    if password_was_used_recently(username, new_password):
+        return False, f"You cannot reuse your last {PASSWORD_HISTORY_LIMIT} passwords."
     user = get_user_by_username(username)
-    if not user: return False, "User not found."
-    user_id, db_username, email, password_hash, role, is_active, created_at, must_change_password = user
-    update_user_password(username=username, new_password_hash=hash_password(new_password), must_change_password=0)
-    email_success, email_message = send_password_changed_email(username, email, "first-time password change")
+    if not user:
+        return False, "User not found."
+    user_id, db_username, email, password_hash, role, is_active, created_at, must_change_password, password_changed_at = user
+    update_user_password(db_username, hash_password(new_password), must_change_password=0)
+    send_password_changed_email(db_username, email, "first-time or expired password change")
+    return True, "Password changed successfully. Please login again."
+
+
+def send_temporary_password_for_user(username):
+    user = get_user_by_username(username)
+    if not user:
+        return False, "User not found.", None, False, None
+    user_id, db_username, email, password_hash, role, is_active, created_at, must_change_password, password_changed_at = user
+    if int(is_active) != 1:
+        return False, "User account is inactive. Activate the user before sending a temporary password.", email, False, None
+    temporary_password = generate_initial_password(12)
+    update_user_password(db_username, hash_password(temporary_password), must_change_password=1)
+    email_success, email_message = send_initial_password_email(db_username, email, temporary_password)
     if email_success:
-        return True, "Password changed successfully. Confirmation email sent. Please login again."
-    return True, email_message
+        return True, "Temporary password sent successfully. User must reset password on next login.", email, True, None
+    return True, f"Temporary password generated and set, but email failed: {email_message}", email, False, temporary_password
 
